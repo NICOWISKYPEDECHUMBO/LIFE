@@ -39,7 +39,7 @@ body { font-family:'Comic Sans MS','Segoe UI',sans-serif; background:linear-grad
   display:flex; align-items:center; justify-content:center; line-height:1.12;
   font-weight:bold; color:#222; padding:3px 8px;
   box-shadow:0 3px 6px rgba(0,0,0,.35); z-index:8; pointer-events:none;
-  width:max-content; max-width:220px; text-align:center;
+  width:max-content; max-width:120px; text-align:center;
 }
 .signtxt { display:block; white-space:normal; word-break:normal; overflow-wrap:normal; hyphens:none; }
 .telhado { position:absolute; z-index:5; pointer-events:none; }
@@ -47,12 +47,12 @@ body { font-family:'Comic Sans MS','Segoe UI',sans-serif; background:linear-grad
 /* FAIXA do carro */
 .carbox { position:absolute; }
 .carbanner {
-  position:absolute; left:78px; top:0; max-width:150px; min-width:60px;
-  background:#1f2937; color:#fff; border-radius:8px; padding:5px 9px;
-  font-size:12px; font-weight:bold; line-height:1.25; box-shadow:0 3px 8px rgba(0,0,0,.4);
-  z-index:6; pointer-events:none; border:2px solid #facc15;
+  position:absolute; left:50%; bottom:30px; transform:translateX(-50%);
+  max-width:120px; background:#1f2937; color:#fff; border-radius:8px; padding:5px 9px;
+  font-weight:bold; line-height:1.2; box-shadow:0 3px 8px rgba(0,0,0,.4);
+  z-index:9; pointer-events:none; border:2px solid #facc15; text-align:center;
 }
-.carbanner::before { content:''; position:absolute; left:-9px; top:14px; border:5px solid transparent; border-right-color:#1f2937; }
+.carbanner::after { content:''; position:absolute; left:50%; bottom:-8px; transform:translateX(-50%); border:5px solid transparent; border-top-color:#1f2937; }
 .ico { position:absolute; display:flex; align-items:center; justify-content:center; pointer-events:none; }
 
 .fx { position:absolute; left:50%; transform:translateX(-50%); pointer-events:none; opacity:0; }
@@ -185,6 +185,22 @@ const isRoad=(c,r)=> c%4===2 || r%4===2;
 function sx(c,r){ return (c-r)*TW/2 + OX; }
 function sy(c,r){ return (c+r)*TH/2 + OY; }
 
+const CC=Math.floor(N/2);
+function buildSpots(){
+  const cells=[], step=3;
+  for(let c=1;c<N;c+=step) for(let r=1;r<N;r+=step){ if(c===CC&&r===CC) continue; cells.push({c,r}); }
+  const cx=(N-1)/2, cy=(N-1)/2;
+  cells.sort((a,b)=> Math.hypot(a.c-cx,a.r-cy)-Math.hypot(b.c-cx,b.r-cy));
+  return cells;
+}
+const SPOTS=buildSpots();
+function freeSpot(items){
+  const occ=new Set(items.map(i=>i.c+','+i.r));
+  for(const s of SPOTS){ if(!occ.has(s.c+','+s.r)) return s; }
+  for(let c=0;c<N;c++) for(let r=0;r<N;r++){ if(c===CC&&r===CC) continue; if(!occ.has(c+','+r)) return {c,r}; }
+  return {c:0,r:0};
+}
+
 function load(){ const s=localStorage.getItem(KEY); return s?JSON.parse(s):[]; }
 function save(it){ localStorage.setItem(KEY,JSON.stringify(it)); }
 
@@ -198,7 +214,7 @@ function freeTile(items, wantRoad){
 function adicionar(){
   const inp=document.getElementById('novoItem'), cat=document.getElementById('categoria').value;
   const texto=inp.value.trim(); if(!texto) return;
-  const items=load(); const t=freeTile(items, cat==='corrida');
+  const items=load(); const t=freeSpot(items);
   items.push({id:Date.now(), texto, categoria:cat, c:t.c, r:t.r});
   save(items); inp.value=''; render(); inp.focus();
 }
@@ -280,7 +296,6 @@ function render(){
     html+=`<div class="tile ${cls}" style="left:${x}px;top:${y}px;z-index:${z};"></div>`; } }
   const cc=Math.floor(N/2);
   html+=`<div class="prop" style="left:${sx(cc,cc)-15}px;top:${sy(cc,cc)-40}px;z-index:${(cc+cc)*10+4};"><span>⛲</span></div>`;
-  [[1,1],[12,2],[2,11],[11,12],[6,1],[1,7]].forEach(([c,r])=>{ if(!isRoad(c,r)) html+=`<div class="prop" style="left:${sx(c,r)-14}px;top:${sy(c,r)-34}px;z-index:${(c+r)*10+4};"><span>🌳</span></div>`; });
 
   mundo.innerHTML=html;
   mundo.style.width=(N*TW)+'px'; mundo.style.height=(N*TH+200)+'px';
@@ -298,7 +313,7 @@ function render(){
         `<div class="face" style="left:10px;top:${H+4}px;width:${TW-20}px;height:${TH-6}px;background:#333;opacity:.22;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%);"></div>`+
         `<div class="ico" style="left:0;top:${H-8}px;width:${TW}px;height:${TH}px;font-size:32px;">🚗</div>`+
         `</div>`+
-        `<div class="carbanner">${esc(it.texto)}</div>`+
+        `<div class="carbanner"><span class="signtxt">${esc(it.texto)}</span></div>`+
         `<div class="fx smoke">💨</div>`;
     } else {
       const H=altura(it), baseY=sy(it.c,it.r)-TH/2 - H;
@@ -318,7 +333,7 @@ function render(){
     mundo.appendChild(wrap);
   });
 
-  document.querySelectorAll('.sign').forEach(fitText);
+  document.querySelectorAll('.sign,.carbanner').forEach(fitText);
 
   document.getElementById('sT').textContent=items.filter(i=>i.categoria==='tarefa').length;
   document.getElementById('sC').textContent=items.filter(i=>i.categoria==='corrida').length;

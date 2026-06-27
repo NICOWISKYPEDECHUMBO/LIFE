@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Cidade 3D da Vida</title>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
@@ -148,10 +148,14 @@ button.add:hover{ transform:translateY(-2px); }
 </head>
 <body>
 <div class="tela">
-  <div class="topo"><h1>🏙️ Cidade 3D da Vida</h1><p>Arraste pra explorar • Clique nas peças pra completar</p></div>
+  <div class="topo"><h1>🏙️ Cidade 3D da Vida</h1><p>Arraste pra explorar • Zoom: scroll do mouse ou pinça • Clique nas peças pra completar</p></div>
   <div class="viewport" id="viewport">
     <div class="mundo" id="mundo"></div>
-    <div class="mini"><button onclick="recentrar()">🎯 Centro</button></div>
+    <div class="mini">
+      <button onclick="zoomBtn(1.25)">➕</button>
+      <button onclick="zoomBtn(0.8)">➖</button>
+      <button onclick="recentrar()">🎯 Centro</button>
+    </div>
   </div>
   <div class="controles">
     <div class="cab">🏗️ O que você precisa fazer?</div>
@@ -180,12 +184,14 @@ button.add:hover{ transform:translateY(-2px); }
 
 <script>
 const KEY='cidade-3d';
-const N=14, TW=84, TH=42, OX=N*TW/2, OY=90;
+let N=14;                          // o mapa CRESCE conforme vai enchendo
+const TW=84, TH=42, OY=90;
+let OX=N*TW/2;
+let CC=Math.floor(N/2);
 const isRoad=(c,r)=> c%4===2 || r%4===2;
 function sx(c,r){ return (c-r)*TW/2 + OX; }
 function sy(c,r){ return (c+r)*TH/2 + OY; }
 
-const CC=Math.floor(N/2);
 function buildSpots(){
   const cells=[], step=3;
   for(let c=1;c<N;c+=step) for(let r=1;r<N;r+=step){ if(c===CC&&r===CC) continue; cells.push({c,r}); }
@@ -193,16 +199,31 @@ function buildSpots(){
   cells.sort((a,b)=> Math.hypot(a.c-cx,a.r-cy)-Math.hypot(b.c-cx,b.r-cy));
   return cells;
 }
-const SPOTS=buildSpots();
+let SPOTS=buildSpots();
+
+/* aumenta o mapa mantendo SEMPRE folga de lotes livres (nada se sobrepõe) */
+function growToFit(count){
+  let changed=false;
+  while(count + 3 > SPOTS.length){   // mantém 3 lotes de respiro
+    N += 3;
+    OX = N*TW/2;
+    CC = Math.floor(N/2);
+    SPOTS = buildSpots();
+    changed=true;
+  }
+  return changed;
+}
+
+function load(){ const s=localStorage.getItem(KEY); return s?JSON.parse(s):[]; }
+function save(it){ localStorage.setItem(KEY,JSON.stringify(it)); }
+
 function freeSpot(items){
+  growToFit(items.length+1);          // garante lote livre ANTES de escolher
   const occ=new Set(items.map(i=>i.c+','+i.r));
   for(const s of SPOTS){ if(!occ.has(s.c+','+s.r)) return s; }
   for(let c=0;c<N;c++) for(let r=0;r<N;r++){ if(c===CC&&r===CC) continue; if(!occ.has(c+','+r)) return {c,r}; }
   return {c:0,r:0};
 }
-
-function load(){ const s=localStorage.getItem(KEY); return s?JSON.parse(s):[]; }
-function save(it){ localStorage.setItem(KEY,JSON.stringify(it)); }
 
 function freeTile(items, wantRoad){
   const occ=new Set(items.map(i=>i.c+','+i.r));
@@ -288,6 +309,7 @@ function predioSVG(it,H){
 
 function render(){
   const items=load();
+  growToFit(items.length);           // expande o mapa se um backup trouxe muita coisa
   const mundo=document.getElementById('mundo');
   let html='';
   for(let s=0;s<N*2-1;s++){ for(let c=0;c<N;c++){ const r=s-c; if(r<0||r>=N) continue;
@@ -377,14 +399,57 @@ function importJSON(ev){
   rd.readAsText(f); ev.target.value='';
 }
 
-/* PAN */
-let tx=0,ty=0,drag=false,sxp=0,syp=0;
+/* ===== PAN + ZOOM (mouse/scroll no PC, pinça no celular) ===== */
+let tx=0,ty=0,scale=1,drag=false,sxp=0,syp=0;
+const MINZ=0.35, MAXZ=3;
 const vp=document.getElementById('viewport'), mundoEl=document.getElementById('mundo');
-function apply(){ mundoEl.style.transform=`translate(${tx}px,${ty}px)`; }
-function recentrar(){ const vw=vp.clientWidth, vh=vp.clientHeight; tx=vw/2-OX; ty=vh/2-((N-1)*TH/2+OY); apply(); }
-vp.addEventListener('pointerdown',e=>{ drag=true; sxp=e.clientX-tx; syp=e.clientY-ty; vp.classList.add('grabbing'); });
-window.addEventListener('pointermove',e=>{ if(!drag) return; tx=e.clientX-sxp; ty=e.clientY-syp; apply(); });
-window.addEventListener('pointerup',()=>{ drag=false; vp.classList.remove('grabbing'); });
+mundoEl.style.transformOrigin='0 0';
+function apply(){ mundoEl.style.transform=`translate(${tx}px,${ty}px) scale(${scale})`; }
+const clampz=v=>Math.max(MINZ,Math.min(MAXZ,v));
+
+/* zoom focando num ponto (px,py = relativo ao viewport) */
+function zoomAt(px,py,factor){
+  const ns=clampz(scale*factor), f=ns/scale;
+  tx = px - (px - tx)*f;
+  ty = py - (py - ty)*f;
+  scale=ns; apply();
+}
+function zoomBtn(factor){ zoomAt(vp.clientWidth/2, vp.clientHeight/2, factor); }
+function recentrar(){ scale=1; const vw=vp.clientWidth, vh=vp.clientHeight; tx=vw/2-OX; ty=vh/2-((N-1)*TH/2+OY); apply(); }
+
+/* zoom com o scroll do mouse, focando no cursor */
+vp.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const rect=vp.getBoundingClientRect();
+  zoomAt(e.clientX-rect.left, e.clientY-rect.top, e.deltaY<0?1.12:1/1.12);
+},{passive:false});
+
+/* arrastar (1 dedo/mouse) + pinça de zoom (2 dedos) */
+const ptrs=new Map(); let pinchD=0;
+const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+vp.addEventListener('pointerdown',e=>{
+  ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(ptrs.size===1){ drag=true; sxp=e.clientX-tx; syp=e.clientY-ty; vp.classList.add('grabbing'); }
+  else { drag=false; vp.classList.remove('grabbing'); const p=[...ptrs.values()]; pinchD=dist(p[0],p[1]); }
+});
+window.addEventListener('pointermove',e=>{
+  if(ptrs.has(e.pointerId)) ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(ptrs.size>=2){
+    const p=[...ptrs.values()], d=dist(p[0],p[1]), rect=vp.getBoundingClientRect();
+    const mx=(p[0].x+p[1].x)/2-rect.left, my=(p[0].y+p[1].y)/2-rect.top;
+    if(pinchD>0) zoomAt(mx,my, d/pinchD);
+    pinchD=d; return;
+  }
+  if(drag){ tx=e.clientX-sxp; ty=e.clientY-syp; apply(); }
+});
+function endPtr(e){
+  ptrs.delete(e.pointerId);
+  if(ptrs.size<2) pinchD=0;
+  if(ptrs.size===0){ drag=false; vp.classList.remove('grabbing'); }
+  else if(ptrs.size===1){ const p=[...ptrs.values()][0]; drag=true; sxp=p.x-tx; syp=p.y-ty; }
+}
+window.addEventListener('pointerup',endPtr);
+window.addEventListener('pointercancel',endPtr);
 
 document.getElementById('novoItem').addEventListener('keypress',e=>{ if(e.key==='Enter') adicionar(); });
 render(); recentrar();
